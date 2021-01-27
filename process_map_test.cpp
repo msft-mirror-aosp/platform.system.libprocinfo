@@ -31,9 +31,7 @@ TEST(process_map, ReadMapFile) {
   std::string map_file = android::base::GetExecutableDirectory() + "/testdata/maps";
   std::vector<android::procinfo::MapInfo> maps;
   ASSERT_TRUE(android::procinfo::ReadMapFile(
-      map_file,
-      [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t inode,
-          const char* name) { maps.emplace_back(start, end, flags, pgoff, inode, name); }));
+      map_file, [&](const android::procinfo::MapInfo& mapinfo) { maps.emplace_back(mapinfo); }));
   ASSERT_EQ(2043u, maps.size());
   ASSERT_EQ(maps[0].start, 0x12c00000ULL);
   ASSERT_EQ(maps[0].end, 0x2ac00000ULL);
@@ -60,9 +58,7 @@ TEST(process_map, ReadMapFile) {
 TEST(process_map, ReadProcessMaps) {
   std::vector<android::procinfo::MapInfo> maps;
   ASSERT_TRUE(android::procinfo::ReadProcessMaps(
-      getpid(),
-      [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t inode,
-          const char* name) { maps.emplace_back(start, end, flags, pgoff, inode, name); }));
+      getpid(), [&](const android::procinfo::MapInfo& mapinfo) { maps.emplace_back(mapinfo); }));
   ASSERT_GT(maps.size(), 0u);
   maps.clear();
   ASSERT_TRUE(android::procinfo::ReadProcessMaps(getpid(), &maps));
@@ -75,8 +71,8 @@ extern "C" void malloc_enable();
 struct TestMapInfo {
   TestMapInfo() = default;
   TestMapInfo(uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t inode,
-              const char* new_name)
-      : start(start), end(end), flags(flags), pgoff(pgoff), inode(inode) {
+              const char* new_name, bool isShared)
+      : start(start), end(end), flags(flags), pgoff(pgoff), inode(inode), isShared(isShared) {
     strcpy(name, new_name);
   }
   uint64_t start = 0;
@@ -85,6 +81,7 @@ struct TestMapInfo {
   uint64_t pgoff = 0;
   ino_t inode = 0;
   char name[100] = {};
+  bool isShared = false;
 };
 
 void VerifyReadMapFileAsyncSafe(const char* maps_data,
@@ -96,7 +93,7 @@ void VerifyReadMapFileAsyncSafe(const char* maps_data,
   size_t num_maps = 0;
 
   auto callback = [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t inode,
-                      const char* name) {
+                      const char* name, bool shared) {
     if (num_maps != saved_info.size()) {
       TestMapInfo& saved = saved_info[num_maps];
       saved.start = start;
@@ -105,6 +102,7 @@ void VerifyReadMapFileAsyncSafe(const char* maps_data,
       saved.pgoff = pgoff;
       saved.inode = inode;
       strcpy(saved.name, name);
+      saved.isShared = shared;
     }
     num_maps++;
   };
@@ -134,6 +132,7 @@ void VerifyReadMapFileAsyncSafe(const char* maps_data,
     EXPECT_EQ(expected.pgoff, saved.pgoff);
     EXPECT_EQ(expected.inode, saved.inode);
     EXPECT_STREQ(expected.name, saved.name);
+    EXPECT_EQ(expected.isShared, saved.isShared);
   }
 }
 
@@ -146,7 +145,7 @@ TEST(process_map, ReadMapFileAsyncSafe_invalid) {
 TEST(process_map, ReadMapFileAsyncSafe_single) {
   std::vector<TestMapInfo> expected_info;
   expected_info.emplace_back(0x12c00000, 0x2ac00000, PROT_READ | PROT_WRITE, 0x100, 10267643,
-                             "/lib/fake.so");
+                             "/lib/fake.so", false);
 
   VerifyReadMapFileAsyncSafe("12c00000-2ac00000 rw-p 00000100 00:05 10267643 /lib/fake.so",
                              expected_info);
@@ -155,7 +154,7 @@ TEST(process_map, ReadMapFileAsyncSafe_single) {
 TEST(process_map, ReadMapFileAsyncSafe_single_with_newline) {
   std::vector<TestMapInfo> expected_info;
   expected_info.emplace_back(0x12c00000, 0x2ac00000, PROT_READ | PROT_WRITE, 0x100, 10267643,
-                             "/lib/fake.so");
+                             "/lib/fake.so", false);
 
   VerifyReadMapFileAsyncSafe("12c00000-2ac00000 rw-p 00000100 00:05 10267643 /lib/fake.so\n",
                              expected_info);
@@ -163,23 +162,28 @@ TEST(process_map, ReadMapFileAsyncSafe_single_with_newline) {
 
 TEST(process_map, ReadMapFileAsyncSafe_single_no_library) {
   std::vector<TestMapInfo> expected_info;
-  expected_info.emplace_back(0xa0000, 0xc0000, PROT_READ | PROT_WRITE | PROT_EXEC, 0xb00, 101, "");
+  expected_info.emplace_back(0xa0000, 0xc0000, PROT_READ | PROT_WRITE | PROT_EXEC, 0xb00, 101, "",
+                             false);
 
   VerifyReadMapFileAsyncSafe("a0000-c0000 rwxp 00000b00 00:05 101", expected_info);
 }
 
 TEST(process_map, ReadMapFileAsyncSafe_multiple) {
   std::vector<TestMapInfo> expected_info;
-  expected_info.emplace_back(0xa0000, 0xc0000, PROT_READ | PROT_WRITE | PROT_EXEC, 1, 100, "");
-  expected_info.emplace_back(0xd0000, 0xe0000, PROT_READ, 2, 101, "/lib/libsomething1.so");
-  expected_info.emplace_back(0xf0000, 0x100000, PROT_WRITE, 3, 102, "/lib/libsomething2.so");
-  expected_info.emplace_back(0x110000, 0x120000, PROT_EXEC, 4, 103, "[anon:something or another]");
+  expected_info.emplace_back(0xa0000, 0xc0000, PROT_READ | PROT_WRITE | PROT_EXEC, 1, 100, "",
+                             false);
+  expected_info.emplace_back(0xd0000, 0xe0000, PROT_READ, 2, 101, "/lib/libsomething1.so", false);
+  expected_info.emplace_back(0xf0000, 0x100000, PROT_WRITE, 3, 102, "/lib/libsomething2.so", false);
+  expected_info.emplace_back(0x110000, 0x120000, PROT_EXEC, 4, 103, "[anon:something or another]",
+                             false);
+  expected_info.emplace_back(0x130000, 0x140000, PROT_READ, 5, 104, "/lib/libsomething3.so", true);
 
   std::string map_data =
       "0a0000-0c0000 rwxp 00000001 00:05 100\n"
       "0d0000-0e0000 r--p 00000002 00:05 101  /lib/libsomething1.so\n"
       "0f0000-100000 -w-p 00000003 00:05 102  /lib/libsomething2.so\n"
-      "110000-120000 --xp 00000004 00:05 103  [anon:something or another]\n";
+      "110000-120000 --xp 00000004 00:05 103  [anon:something or another]\n"
+      "130000-140000 r--s 00000005 00:05 104  /lib/libsomething3.so\n";
 
   VerifyReadMapFileAsyncSafe(map_data.c_str(), expected_info);
 }
@@ -191,7 +195,7 @@ TEST(process_map, ReadMapFileAsyncSafe_multiple_reads) {
   for (size_t i = 0; i < 10000; i++) {
     map_data += android::base::StringPrintf("%" PRIx64 "-%" PRIx64 " r--p %zx 01:20 %zu fake.so\n",
                                             start, start + 0x1000, i, 1000 + i);
-    expected_info.emplace_back(start, start + 0x1000, PROT_READ, i, 1000 + i, "fake.so");
+    expected_info.emplace_back(start, start + 0x1000, PROT_READ, i, 1000 + i, "fake.so", false);
   }
 
   VerifyReadMapFileAsyncSafe(map_data.c_str(), expected_info);
@@ -199,7 +203,7 @@ TEST(process_map, ReadMapFileAsyncSafe_multiple_reads) {
 
 TEST(process_map, ReadMapFileAsyncSafe_buffer_nullptr) {
   size_t num_calls = 0;
-  auto callback = [&](uint64_t, uint64_t, uint16_t, uint64_t, ino_t, const char*) { num_calls++; };
+  auto callback = [&](const android::procinfo::MapInfo&) { num_calls++; };
 
 #if defined(__BIONIC__)
   // Any allocations will block after this call.
@@ -218,7 +222,7 @@ TEST(process_map, ReadMapFileAsyncSafe_buffer_nullptr) {
 
 TEST(process_map, ReadMapFileAsyncSafe_buffer_size_zero) {
   size_t num_calls = 0;
-  auto callback = [&](uint64_t, uint64_t, uint16_t, uint64_t, ino_t, const char*) { num_calls++; };
+  auto callback = [&](const android::procinfo::MapInfo&) { num_calls++; };
 
 #if defined(__BIONIC__)
   // Any allocations will block after this call.
@@ -238,7 +242,7 @@ TEST(process_map, ReadMapFileAsyncSafe_buffer_size_zero) {
 
 TEST(process_map, ReadMapFileAsyncSafe_buffer_too_small_no_calls) {
   size_t num_calls = 0;
-  auto callback = [&](uint64_t, uint64_t, uint16_t, uint64_t, ino_t, const char*) { num_calls++; };
+  auto callback = [&](const android::procinfo::MapInfo&) { num_calls++; };
 
 #if defined(__BIONIC__)
   // Any allocations will block after this call.
@@ -263,7 +267,7 @@ TEST(process_map, ReadMapFileAsyncSafe_buffer_too_small_could_parse) {
       "0a0000-0c0000 rwxp 00000001 00:05 100    /fake/lib.so\n", tf.fd));
 
   size_t num_calls = 0;
-  auto callback = [&](uint64_t, uint64_t, uint16_t, uint64_t, ino_t, const char*) { num_calls++; };
+  auto callback = [&](const android::procinfo::MapInfo&) { num_calls++; };
 
 #if defined(__BIONIC__)
   // Any allocations will block after this call.
