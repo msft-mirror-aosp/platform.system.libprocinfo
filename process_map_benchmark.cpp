@@ -32,10 +32,8 @@ static void BM_ReadMapFile(benchmark::State& state) {
   std::string map_file = android::base::GetExecutableDirectory() + "/testdata/maps";
   for (auto _ : state) {
     std::vector<android::procinfo::MapInfo> maps;
-    android::procinfo::ReadMapFile(map_file, [&](uint64_t start, uint64_t end, uint16_t flags,
-                                                 uint64_t pgoff, ino_t inode, const char* name) {
-      maps.emplace_back(start, end, flags, pgoff, inode, name);
-    });
+    android::procinfo::ReadMapFile(
+        map_file, [&](const android::procinfo::MapInfo& mapinfo) { maps.emplace_back(mapinfo); });
     CHECK_EQ(maps.size(), 2043u);
   }
 }
