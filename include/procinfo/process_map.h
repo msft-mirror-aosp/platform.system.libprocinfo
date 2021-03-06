@@ -229,7 +229,20 @@ inline bool ReadMapFile(const std::string& map_file,
   return ReadMapFileContent(&content[0], callback);
 }
 
+inline bool ReadMapFile(const std::string& map_file,
+                const MapInfoParamsCallback& callback) {
+  std::string content;
+  if (!android::base::ReadFileToString(map_file, &content)) {
+    return false;
+  }
+  return ReadMapFileContent(&content[0], callback);
+}
+
 inline bool ReadProcessMaps(pid_t pid, const MapInfoCallback& callback) {
+  return ReadMapFile("/proc/" + std::to_string(pid) + "/maps", callback);
+}
+
+inline bool ReadProcessMaps(pid_t pid, const MapInfoParamsCallback& callback) {
   return ReadMapFile("/proc/" + std::to_string(pid) + "/maps", callback);
 }
 
