@@ -28,6 +28,7 @@
 
 #include <gtest/gtest.h>
 
+#include <android-base/logging.h>
 #include <android-base/stringprintf.h>
 
 using namespace std::chrono_literals;
@@ -114,5 +115,46 @@ TEST(process_info, process_state) {
   ASSERT_TRUE(android::procinfo::GetProcessInfo(forkpid, &procinfo));
   ASSERT_EQ(android::procinfo::kProcessStateZombie, procinfo.state);
 
+  ASSERT_EQ(forkpid, waitpid(forkpid, nullptr, 0));
+}
+
+static uint64_t read_uptime_secs() {
+  std::string uptime;
+  if (!android::base::ReadFileToString("/proc/uptime", &uptime)) {
+    PLOG(FATAL) << "failed to read /proc/uptime";
+  }
+  return strtoll(uptime.c_str(), nullptr, 10);
+}
+
+TEST(process_info, process_start_time) {
+  uint64_t start = read_uptime_secs();
+  int pipefd[2];
+  ASSERT_EQ(0, pipe2(pipefd, O_CLOEXEC));
+
+  std::this_thread::sleep_for(1000ms);
+
+  pid_t forkpid = fork();
+
+  ASSERT_NE(-1, forkpid);
+  if (forkpid == 0) {
+    close(pipefd[1]);
+    char buf;
+    TEMP_FAILURE_RETRY(read(pipefd[0], &buf, 1));
+    _exit(0);
+  }
+
+  std::this_thread::sleep_for(1000ms);
+
+  uint64_t end = read_uptime_secs();
+
+  android::procinfo::ProcessInfo procinfo;
+  ASSERT_TRUE(android::procinfo::GetProcessInfo(forkpid, &procinfo));
+
+  // starttime is measured in clock ticks: uptime is in seconds:
+  uint64_t process_start = procinfo.starttime / sysconf(_SC_CLK_TCK);
+  ASSERT_LE(start, process_start);
+  ASSERT_LE(process_start, end);
+
+  ASSERT_EQ(0, kill(forkpid, SIGKILL));
   ASSERT_EQ(forkpid, waitpid(forkpid, nullptr, 0));
 }
