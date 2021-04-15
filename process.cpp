@@ -46,8 +46,8 @@ bool GetProcessInfo(pid_t tid, ProcessInfo* process_info, std::string* error) {
   return GetProcessInfoFromProcPidFd(dirfd.get(), process_info, error);
 }
 
-static ProcessState parse_state(const char* state) {
-  switch (*state) {
+static ProcessState parse_state(char state) {
+  switch (state) {
     case 'R':
       return kProcessStateRunning;
     case 'S':
@@ -83,7 +83,7 @@ bool GetProcessInfoFromProcPidFd(int fd, ProcessInfo* process_info, std::string*
   }
 
   int field_bitmap = 0;
-  static constexpr int finished_bitmap = 255;
+  static constexpr int finished_bitmap = 63;
   char* line = nullptr;
   size_t len = 0;
 
@@ -103,32 +103,81 @@ bool GetProcessInfoFromProcPidFd(int fd, ProcessInfo* process_info, std::string*
       process_info->name = std::move(name);
 
       field_bitmap |= 1;
+    }  else if (header == "Tgid:") {
+      process_info->pid = atoi(tab + 1);
+      field_bitmap |= 2;
     } else if (header == "Pid:") {
       process_info->tid = atoi(tab + 1);
-      field_bitmap |= 2;
-    } else if (header == "Tgid:") {
-      process_info->pid = atoi(tab + 1);
       field_bitmap |= 4;
-    } else if (header == "PPid:") {
-      process_info->ppid = atoi(tab + 1);
-      field_bitmap |= 8;
     } else if (header == "TracerPid:") {
       process_info->tracer = atoi(tab + 1);
-      field_bitmap |= 16;
+      field_bitmap |= 8;
     } else if (header == "Uid:") {
       process_info->uid = atoi(tab + 1);
-      field_bitmap |= 32;
+      field_bitmap |= 16;
     } else if (header == "Gid:") {
       process_info->gid = atoi(tab + 1);
-      field_bitmap |= 64;
-    } else if (header == "State:") {
-      process_info->state = parse_state(tab + 1);
-      field_bitmap |= 128;
+      field_bitmap |= 32;
     }
   }
 
   free(line);
-  return field_bitmap == finished_bitmap;
+  if (field_bitmap != finished_bitmap) {
+    *error = "failed to parse /proc/<pid>/status";
+    return false;
+  }
+
+  unique_fd stat_fd(openat(fd, "stat", O_RDONLY | O_CLOEXEC));
+  if (stat_fd == -1) {
+    *error = "failed to open /proc/<pid>/stat";
+  }
+
+  std::string stat;
+  if (!android::base::ReadFdToString(stat_fd, &stat)) {
+    *error = "failed to read /proc/<pid>/stat";
+    return false;
+  }
+
+  // See man 5 proc. There's no reason comm can't contain ' ' or ')',
+  // so we search backwards for the end of it.
+  const char* end_of_comm = strrchr(stat.c_str(), ')');
+
+  static constexpr const char* pattern =
+      "%c "    // state
+      "%d "    // ppid
+      "%*d "   // pgrp
+      "%*d "   // session
+      "%*d "   // tty_nr
+      "%*d "   // tpgid
+      "%*u "   // flags
+      "%*lu "  // minflt
+      "%*lu "  // cminflt
+      "%*lu "  // majflt
+      "%*lu "  // cmajflt
+      "%*lu "  // utime
+      "%*lu "  // stime
+      "%*ld "  // cutime
+      "%*ld "  // cstime
+      "%*ld "  // priority
+      "%*ld "  // nice
+      "%*ld "  // num_threads
+      "%*ld "  // itrealvalue
+      "%llu "  // starttime
+      ;
+
+  char state = '\0';
+  int ppid = 0;
+  unsigned long long start_time = 0;
+  int rc = sscanf(end_of_comm + 2, pattern, &state, &ppid, &start_time);
+  if (rc != 3) {
+    *error = "failed to parse /proc/<pid>/stat";
+    return false;
+  }
+
+  process_info->state = parse_state(state);
+  process_info->ppid = ppid;
+  process_info->starttime = start_time;
+  return true;
 }
 
 } /* namespace procinfo */
