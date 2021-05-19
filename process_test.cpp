@@ -28,8 +28,10 @@
 
 #include <gtest/gtest.h>
 
+#include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <android-base/unique_fd.h>
 
 using namespace std::chrono_literals;
 
@@ -157,4 +159,40 @@ TEST(process_info, process_start_time) {
 
   ASSERT_EQ(0, kill(forkpid, SIGKILL));
   ASSERT_EQ(forkpid, waitpid(forkpid, nullptr, 0));
+}
+
+TEST(process_info, GetProcessInfoFromProcPidFd_set_error) {
+  TemporaryDir tmp_dir;
+
+  android::base::unique_fd dirfd(open(tmp_dir.path, O_DIRECTORY | O_RDONLY));
+  android::procinfo::ProcessInfo procinfo;
+  std::string error;
+
+  // failed to open status file error
+  // No segfault if not given error string.
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
+  // Set error when given error string.
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
+  ASSERT_EQ(error, "failed to open status fd in GetProcessInfoFromProcPidFd");
+
+  // failed to parse status file error
+  std::string status_file = std::string(tmp_dir.path) + "/status";
+  ASSERT_TRUE(android::base::WriteStringToFile("invalid data", status_file));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
+  ASSERT_EQ(error, "failed to parse /proc/<pid>/status");
+
+  // failed to read stat file error
+  ASSERT_TRUE(android::base::WriteStringToFile(
+      "Name:\tsh\nTgid:\t0\nPid:\t0\nTracerPid:\t0\nUid:\t0\nGid:\t0\n", status_file));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
+  ASSERT_EQ(error, "failed to read /proc/<pid>/stat");
+
+  // failed to parse stat file error
+  std::string stat_file = std::string(tmp_dir.path) + "/stat";
+  ASSERT_TRUE(android::base::WriteStringToFile("2027 (sh) invalid data", stat_file));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
+  ASSERT_EQ(error, "failed to parse /proc/<pid>/stat");
 }
