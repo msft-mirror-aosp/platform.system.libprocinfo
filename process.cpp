@@ -63,21 +63,24 @@ static ProcessState parse_state(char state) {
   }
 }
 
-bool GetProcessInfoFromProcPidFd(int fd, ProcessInfo* process_info, std::string* error) {
+bool GetProcessInfoFromProcPidFd(int fd, ProcessInfo* process_info,
+                                 std::string* error /* can be nullptr */) {
   int status_fd = openat(fd, "status", O_RDONLY | O_CLOEXEC);
 
-  if (status_fd == -1) {
+  auto set_error = [&error](const char* err) {
     if (error != nullptr) {
-      *error = "failed to open status fd in GetProcessInfoFromProcPidFd";
+      *error = err;
     }
+  };
+
+  if (status_fd == -1) {
+    set_error("failed to open status fd in GetProcessInfoFromProcPidFd");
     return false;
   }
 
   std::unique_ptr<FILE, decltype(&fclose)> fp(fdopen(status_fd, "r"), fclose);
   if (!fp) {
-    if (error != nullptr) {
-      *error = "failed to open status file in GetProcessInfoFromProcPidFd";
-    }
+    set_error("failed to open status file in GetProcessInfoFromProcPidFd");
     close(status_fd);
     return false;
   }
@@ -123,18 +126,18 @@ bool GetProcessInfoFromProcPidFd(int fd, ProcessInfo* process_info, std::string*
 
   free(line);
   if (field_bitmap != finished_bitmap) {
-    *error = "failed to parse /proc/<pid>/status";
+    set_error("failed to parse /proc/<pid>/status");
     return false;
   }
 
   unique_fd stat_fd(openat(fd, "stat", O_RDONLY | O_CLOEXEC));
   if (stat_fd == -1) {
-    *error = "failed to open /proc/<pid>/stat";
+    set_error("failed to open /proc/<pid>/stat");
   }
 
   std::string stat;
   if (!android::base::ReadFdToString(stat_fd, &stat)) {
-    *error = "failed to read /proc/<pid>/stat";
+    set_error("failed to read /proc/<pid>/stat");
     return false;
   }
 
@@ -170,7 +173,7 @@ bool GetProcessInfoFromProcPidFd(int fd, ProcessInfo* process_info, std::string*
   unsigned long long start_time = 0;
   int rc = sscanf(end_of_comm + 2, pattern, &state, &ppid, &start_time);
   if (rc != 3) {
-    *error = "failed to parse /proc/<pid>/stat";
+    set_error("failed to parse /proc/<pid>/stat");
     return false;
   }
 
