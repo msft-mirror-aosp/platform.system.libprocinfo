@@ -26,6 +26,7 @@
 #include <string>
 #include <type_traits>
 
+#include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/unique_fd.h>
@@ -53,6 +54,9 @@ struct ProcessInfo {
   pid_t tracer;
   uid_t uid;
   uid_t gid;
+
+  // Start time of the process since boot, measured in clock ticks.
+  uint64_t starttime;
 };
 
 // Parse the contents of /proc/<tid>/status into |process_info|.
