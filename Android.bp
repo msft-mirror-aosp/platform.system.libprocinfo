@@ -14,6 +14,10 @@
 // limitations under the License.
 //
 
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
 cc_defaults {
     name: "libprocinfo_defaults",
     cflags: [
@@ -27,16 +31,17 @@ cc_library {
     name: "libprocinfo",
     defaults: ["libprocinfo_defaults"],
     vendor_available: true,
+    product_available: true,
     // TODO(b/153609531): remove when no longer needed.
     native_bridge_supported: true,
     recovery_available: true,
+    vendor_ramdisk_available: true,
     vndk: {
         enabled: true,
     },
     host_supported: true,
     srcs: [
         "process.cpp",
-        "process_map.cpp",
     ],
 
     local_include_dirs: ["include"],
@@ -56,9 +61,10 @@ cc_library {
 
     apex_available: [
         "//apex_available:platform",
+        "com.android.art",
         "com.android.art.debug",
-        "com.android.art.release",
     ],
+    min_sdk_version: "apex_inherit",
 }
 
 // Tests
