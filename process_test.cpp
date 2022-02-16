@@ -35,7 +35,7 @@
 
 using namespace std::chrono_literals;
 
-#if defined(__GLIBC__)
+#if !defined(__BIONIC__)
 #include <syscall.h>
 static pid_t gettid() {
   return syscall(__NR_gettid);
