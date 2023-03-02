@@ -57,7 +57,7 @@ TEST(process_info, process_info_proc_pid_fd_smoke) {
   android::procinfo::ProcessInfo self;
   int fd = open(android::base::StringPrintf("/proc/%d", gettid()).c_str(), O_DIRECTORY | O_RDONLY);
   ASSERT_NE(-1, fd);
-  ASSERT_TRUE(android::procinfo::GetProcessInfoFromProcPidFd(fd, &self));
+  ASSERT_TRUE(android::procinfo::GetProcessInfoFromProcPidFd(fd, gettid(), &self));
 
   // Process name is capped at 15 bytes.
   ASSERT_EQ("libprocinfo_tes", self.name);
@@ -171,29 +171,31 @@ TEST(process_info, GetProcessInfoFromProcPidFd_set_error) {
 
   // failed to open status file error
   // No segfault if not given error string.
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo));
   // Set error when given error string.
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
-  ASSERT_EQ(error, "failed to open status fd in GetProcessInfoFromProcPidFd");
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo, &error));
+  ASSERT_EQ(error, "failed to open /proc/0/status in GetProcessInfoFromProcPidFd: No such file or directory");
 
   // failed to parse status file error
   std::string status_file = std::string(tmp_dir.path) + "/status";
   ASSERT_TRUE(android::base::WriteStringToFile("invalid data", status_file));
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
-  ASSERT_EQ(error, "failed to parse /proc/<pid>/status");
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo, &error));
+  ASSERT_EQ(error, "failed to parse /proc/0/status");
 
-  // failed to read stat file error
+  // Give the "/status" file valid contents.
   ASSERT_TRUE(android::base::WriteStringToFile(
       "Name:\tsh\nTgid:\t0\nPid:\t0\nTracerPid:\t0\nUid:\t0\nGid:\t0\n", status_file));
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
-  ASSERT_EQ(error, "failed to read /proc/<pid>/stat");
+
+  // failed to open stat file error
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo, &error));
+  ASSERT_EQ(error, "failed to open /proc/0/stat: No such file or directory");
 
   // failed to parse stat file error
   std::string stat_file = std::string(tmp_dir.path) + "/stat";
   ASSERT_TRUE(android::base::WriteStringToFile("2027 (sh) invalid data", stat_file));
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo));
-  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), &procinfo, &error));
-  ASSERT_EQ(error, "failed to parse /proc/<pid>/stat");
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo));
+  ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo, &error));
+  ASSERT_EQ(error, "failed to parse /proc/0/stat: No such file or directory");
 }
