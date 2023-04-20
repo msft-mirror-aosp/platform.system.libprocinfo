@@ -178,7 +178,7 @@ bool GetProcessInfoFromProcPidFd(int fd, int pid, ProcessInfo* process_info,
   unsigned long long start_time = 0;
   int rc = sscanf(end_of_comm + 2, pattern, &state, &ppid, &start_time);
   if (rc != 3) {
-    return SetError(error, errno, "failed to parse /proc/%d/stat", pid);
+    return SetError(error, 0, "failed to parse /proc/%d/stat", pid);
   }
 
   process_info->state = parse_state(state);
