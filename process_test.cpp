@@ -200,5 +200,5 @@ TEST(process_info, GetProcessInfoFromProcPidFd_set_error) {
   ASSERT_TRUE(android::base::WriteStringToFile("2027 (sh) invalid data", stat_file));
   ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo));
   ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo, &error));
-  ASSERT_EQ(error, "failed to parse /proc/0/stat: No such file or directory");
+  ASSERT_EQ(error, "failed to parse /proc/0/stat");
 }
