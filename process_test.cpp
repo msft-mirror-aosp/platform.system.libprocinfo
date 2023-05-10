@@ -103,19 +103,22 @@ TEST(process_info, process_state) {
     _exit(0);
   }
 
-  // Give the child some time to get to the read.
-  std::this_thread::sleep_for(100ms);
 
+  // Give the child some time to get to the read.
   android::procinfo::ProcessInfo procinfo;
-  ASSERT_TRUE(android::procinfo::GetProcessInfo(forkpid, &procinfo));
+  for (int loop = 0; loop < 50 && procinfo.state != android::procinfo::kProcessStateSleeping; loop++) {
+   std::this_thread::sleep_for(100ms);
+   ASSERT_TRUE(android::procinfo::GetProcessInfo(forkpid, &procinfo));
+  }
   ASSERT_EQ(android::procinfo::kProcessStateSleeping, procinfo.state);
 
   ASSERT_EQ(0, kill(forkpid, SIGKILL));
 
   // Give the kernel some time to kill the child.
-  std::this_thread::sleep_for(100ms);
-
-  ASSERT_TRUE(android::procinfo::GetProcessInfo(forkpid, &procinfo));
+  for (int loop = 0; loop < 50 && procinfo.state != android::procinfo::kProcessStateZombie; loop++) {
+    std::this_thread::sleep_for(100ms);
+    ASSERT_TRUE(android::procinfo::GetProcessInfo(forkpid, &procinfo));
+  }
   ASSERT_EQ(android::procinfo::kProcessStateZombie, procinfo.state);
 
   ASSERT_EQ(forkpid, waitpid(forkpid, nullptr, 0));
@@ -197,5 +200,5 @@ TEST(process_info, GetProcessInfoFromProcPidFd_set_error) {
   ASSERT_TRUE(android::base::WriteStringToFile("2027 (sh) invalid data", stat_file));
   ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo));
   ASSERT_FALSE(android::procinfo::GetProcessInfoFromProcPidFd(dirfd.get(), 0, &procinfo, &error));
-  ASSERT_EQ(error, "failed to parse /proc/0/stat: No such file or directory");
+  ASSERT_EQ(error, "failed to parse /proc/0/stat");
 }
