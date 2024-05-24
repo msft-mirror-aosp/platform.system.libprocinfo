@@ -38,9 +38,6 @@ cc_library {
     ramdisk_available: true,
     recovery_available: true,
     vendor_ramdisk_available: true,
-    vndk: {
-        enabled: true,
-    },
     host_supported: true,
     srcs: [
         "process.cpp",
