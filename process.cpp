@@ -16,14 +16,20 @@
 
 #include <procinfo/process.h>
 
+#include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 
+#include <android-base/file.h>
+#include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
 
 using android::base::unique_fd;
