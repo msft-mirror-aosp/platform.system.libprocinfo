@@ -79,6 +79,12 @@ static ProcessState parse_state(char state) {
       return kProcessStateStopped;
     case 'Z':
       return kProcessStateZombie;
+    case 't':
+      return kProcessStateTracingStop;
+    case 'X':
+      return kProcessStateDead;
+    case 'I':
+      return kProcessStateIdle;
     default:
       return kProcessStateUnknown;
   }
@@ -159,7 +165,7 @@ bool GetProcessInfoFromProcPidFd(int fd, int pid, ProcessInfo* process_info,
   static constexpr const char* pattern =
       "%c "    // state
       "%d "    // ppid
-      "%*d "   // pgrp
+      "%d "    // pgrp
       "%*d "   // session
       "%*d "   // tty_nr
       "%*d "   // tpgid
@@ -181,14 +187,16 @@ bool GetProcessInfoFromProcPidFd(int fd, int pid, ProcessInfo* process_info,
 
   char state = '\0';
   int ppid = 0;
+  int pgrp = 0;
   unsigned long long start_time = 0;
-  int rc = sscanf(end_of_comm + 2, pattern, &state, &ppid, &start_time);
-  if (rc != 3) {
+  int rc = sscanf(end_of_comm + 2, pattern, &state, &ppid, &pgrp, &start_time);
+  if (rc != 4) {
     return SetError(error, 0, "failed to parse /proc/%d/stat", pid);
   }
 
   process_info->state = parse_state(state);
   process_info->ppid = ppid;
+  process_info->pgrp = pgrp;
   process_info->starttime = start_time;
   return true;
 }
